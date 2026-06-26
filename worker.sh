@@ -21,7 +21,7 @@ while true; do
 
         TASK=$(cat coordination/task.md)
 
-        claude --permission-mode bypassPermissions -p "
+        claude --dangerously-skip-permissions -p "
 너는 claude-macmini 에이전트다. 워크스페이스는 $REPO 이다.
 
 아래는 현재 task 내용이다:
@@ -29,7 +29,7 @@ while true; do
 $TASK
 ---
 
-지시에 따라 작업해라.
+지시에 따라 작업해라. 사용자에게 확인을 요청하거나 중단하지 말고 끝까지 자율적으로 수행해라.
 - 결과는 agents/macmini.md 에 작성
 - 의견은 coordination/discussion.md 에 추가
 - 완료 후 반드시 아래 명령으로 push:

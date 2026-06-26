@@ -43,3 +43,7 @@
 - worker script: installed at /Users/yoonjunseo/AgentWorker/worker.sh
 - Remote Login status: On
 - Mac mini IP: 192.168.219.112
+
+## 상태 보고 - 2026-06-26 23:15:21 KST
+
+worker 정상 작동 중

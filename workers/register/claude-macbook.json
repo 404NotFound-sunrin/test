@@ -1,0 +1,10 @@
+{
+  "id": "claude-macbook",
+  "host": "192.168.219.177",
+  "sshUser": "dbswnstj",
+  "branch": "agents/claude-macbook",
+  "agentName": "macbook",
+  "os": "Darwin",
+  "hostname": "dbswnstjui-MacBookPro.local",
+  "registeredAt": "2026-06-26T15:11:24Z"
+}

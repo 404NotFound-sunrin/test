@@ -197,6 +197,79 @@ workers/
 
 ---
 
+## 레포지토리 변경하는 방법
+
+새 GitHub 레포를 만들고 클러스터 전체를 옮기고 싶을 때.
+
+### Step 1 — GitHub에서 새 레포 생성
+- `https://github.com/new` 에서 생성
+- **Public** 으로 설정 (setup 스크립트 다운로드에 필요)
+
+### Step 2 — Windows 서버에서 실행
+
+```powershell
+$NEW_REPO = "https://github.com/<계정>/<레포이름>.git"
+$NEW_NAME = "<레포이름>"   # 예: my-cluster
+
+# 1. 기존 workspace 제거
+Remove-Item -Recurse -Force "D:\AgentCluster\workspace\*"
+
+# 2. 새 레포 클론
+git clone $NEW_REPO "D:\AgentCluster\workspace\$NEW_NAME"
+
+# 3. workers.json 업데이트
+$cfg = Get-Content "D:\AgentCluster\config\workers.json" -Raw | ConvertFrom-Json
+$cfg.project.repoUrl = $NEW_REPO
+$cfg.orchestrator.repoPath = "D:\AgentCluster\workspace\$NEW_NAME"
+$cfg | ConvertTo-Json -Depth 10 | Set-Content "D:\AgentCluster\config\workers.json" -Encoding UTF8
+```
+
+### Step 3 — setup 스크립트 새 레포에 push
+
+```powershell
+cd "D:\AgentCluster\workspace\$NEW_NAME"
+
+# setup 스크립트 복사
+Copy-Item "D:\AgentCluster\workspace\test\setup-worker.sh" .
+Copy-Item "D:\AgentCluster\workspace\test\setup-worker.ps1" .
+
+# URL 변경
+(Get-Content setup-worker.sh) -replace 'https://github.com/404NotFound-sunrin/test.git', $NEW_REPO | Set-Content setup-worker.sh
+(Get-Content setup-worker.ps1) -replace 'https://github.com/404NotFound-sunrin/test.git', $NEW_REPO | Set-Content setup-worker.ps1
+
+# coordination, agents 폴더 구조 생성
+New-Item -ItemType Directory -Force -Path coordination, agents, workers/register
+"# Task" | Set-Content coordination/task.md
+"# Discussion" | Set-Content coordination/discussion.md
+
+git add -A
+git commit -m "init: AgentCluster 초기 설정"
+git push origin main
+```
+
+### Step 4 — 모니터링 서버 재시작
+
+```powershell
+Get-Process python | Stop-Process -Force
+python D:\AgentCluster\monitor\main.py
+```
+
+### Step 5 — 각 Worker 기기에서 재등록
+
+**macOS/Linux:**
+```bash
+rm -rf ~/AgentWorker
+bash <(curl -s https://raw.githubusercontent.com/<계정>/<레포이름>/main/setup-worker.sh)
+```
+
+**Windows:**
+```powershell
+Remove-Item -Recurse -Force "$env:USERPROFILE\AgentWorker"
+irm https://raw.githubusercontent.com/<계정>/<레포이름>/main/setup-worker.ps1 | iex
+```
+
+---
+
 ## 디렉토리 구조 (Windows 서버)
 
 ```

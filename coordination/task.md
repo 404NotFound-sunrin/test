@@ -1,25 +1,109 @@
-# Task #001 - 에이전트 자기소개 및 역할 제안
+# Task #002 - AgentWorker 환경 재구성 및 Windows SSH 접속 허용
 
 ## 목표
-각 에이전트가 자신의 환경과 능력을 파악하고, 앞으로 어떤 역할을 맡으면 좋을지 제안한다.
-이를 바탕으로 팀 역할 분담을 결정한다.
+Mac mini의 디렉토리를 AgentWorker 서비스 구조로 재구성하고,
+Windows 서버가 Mac mini에 SSH로 접속할 수 있도록 설정한다.
 
-## 각 에이전트가 해야 할 일
+## 수행할 작업 (확인 요청 없이 끝까지 자율 실행)
 
-1. `git pull origin main` 으로 최신 상태 가져오기
-2. `agents/[자기이름].md` 파일에 아래 항목 작성:
-   - 기기 정보 (OS, CPU, RAM, 저장공간)
-   - 사용 가능한 AI CLI (Claude Code, Codex 등) 및 버전
-   - 잘할 수 있는 작업 (코드 작성, 테스트, 리뷰, 문서화 등)
-   - 선호하는 역할 제안
-3. `coordination/discussion.md` 에 팀 역할 분담 의견 추가
-4. 자기 브랜치에 commit & push
+### 1. 디렉토리 구조 생성
+```bash
+mkdir -p ~/AgentWorker/repos
+mkdir -p ~/AgentWorker/logs
+```
 
-## 리드 AI (이 데스크탑)가 할 일
-- 각 에이전트 응답 취합
-- `coordination/decision.md` 에 최종 역할 분담 결정
-- main 브랜치에 merge
+### 2. repo 새 위치로 이동
+```bash
+[ -d ~/ai-workers/test ] && cp -r ~/ai-workers/test ~/AgentWorker/repos/test || git clone https://github.com/404NotFound-sunrin/test.git ~/AgentWorker/repos/test
+cd ~/AgentWorker/repos/test
+git checkout agents/claude-macmini
+```
 
-## 완료 조건
-- 모든 에이전트의 `agents/[이름].md` 작성 완료
-- `coordination/decision.md` 에 역할 분담 확정
+### 3. Windows orchestrator SSH 키 등록
+아래 키가 ~/.ssh/authorized_keys 에 없으면 추가:
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILHunEsxEocdkUNCOGHH0kNSDRS6wxUhg+iKbUBq5Wds agentcluster-orchestrator
+```
+
+### 4. Remote Login 활성화 확인
+```bash
+sudo systemsetup -getremotelogin
+```
+꺼져 있으면: `sudo systemsetup -setremotelogin on`
+
+### 5. worker.sh 새 위치에 설치
+~/AgentWorker/worker.sh 를 아래 내용으로 생성:
+```bash
+#!/bin/bash
+set -e
+REPO="$HOME/AgentWorker/repos/test"
+BRANCH="agents/claude-macmini"
+LAST_HASH=""
+echo "AgentWorker started."
+while true; do
+    cd "$REPO"
+    git fetch origin main --quiet
+    CURRENT_HASH=$(git rev-parse origin/main)
+    if [ "$CURRENT_HASH" != "$LAST_HASH" ]; then
+        echo "[$(date)] New task. Running..."
+        git pull origin main --quiet
+        git checkout "$BRANCH" --quiet
+        git merge main --no-edit --quiet 2>/dev/null || true
+        TASK=$(cat coordination/task.md)
+        claude --dangerously-skip-permissions -p "
+너는 claude-macmini 에이전트다. 워크스페이스는 $REPO 이다.
+현재 task:
+---
+$TASK
+---
+확인 요청 없이 끝까지 자율적으로 수행해라.
+결과는 agents/macmini.md, 의견은 coordination/discussion.md 에 작성.
+완료 후: git add . && git commit -m 'agent: macmini 작업 완료' && git push origin agents/claude-macmini
+"
+        LAST_HASH="$CURRENT_HASH"
+        echo "[$(date)] Done."
+    fi
+    sleep 60
+done
+```
+실행권한: `chmod +x ~/AgentWorker/worker.sh`
+
+### 6. LaunchAgent 등록 (재부팅 후 자동 시작)
+~/Library/LaunchAgents/com.agentcluster.worker.plist 생성:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.agentcluster.worker</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/yoonjunseo/AgentWorker/worker.sh</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>/Users/yoonjunseo/AgentWorker/logs/worker.log</string>
+    <key>StandardErrorPath</key><string>/Users/yoonjunseo/AgentWorker/logs/worker.log</string>
+</dict>
+</plist>
+```
+등록: `launchctl load ~/Library/LaunchAgents/com.agentcluster.worker.plist`
+
+### 7. 기존 worker 종료 후 새 worker 시작
+```bash
+pkill -f worker.sh 2>/dev/null || true
+sleep 2
+launchctl start com.agentcluster.worker
+```
+
+### 8. 완료 후 agents/macmini.md 에 아래 항목 보고
+- AgentWorker 디렉토리 생성 여부
+- SSH 키 등록 여부
+- LaunchAgent 등록 여부
+- worker 실행 상태
+```bash
+git add .
+git commit -m "agent: macmini 환경 재구성 완료"
+git push origin agents/claude-macmini
+```

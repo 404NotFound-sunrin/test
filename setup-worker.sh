@@ -151,36 +151,45 @@ git push origin "$BRANCH" --quiet 2>/dev/null || true
 echo "[8/9] worker.sh 설치..."
 cat > "$WORKER_BASE/worker.sh" << WORKEREOF
 #!/bin/bash
+set -uo pipefail
 REPO="$WORKER_BASE/repos/test"
 BRANCH="$BRANCH"
 AGENT_NAME="$AGENT_NAME"
 WORKER_ID="$WORKER_ID"
 CLAUDE="${CLAUDE_BIN:-claude}"
-LAST_HASH=""
+STATE_DIR="$WORKER_BASE/state"
+LAST_TASK_FILE="\$STATE_DIR/last_task_hash"
+
+mkdir -p "\$STATE_DIR" "$WORKER_BASE/logs"
 
 # PATH 보장
 export PATH="/opt/homebrew/bin:/usr/local/bin:\$HOME/.npm-global/bin:\$PATH"
 
-echo "[\$(date)] AgentWorker [\$WORKER_ID] started."
+log() { echo "[\$(date '+%Y-%m-%d %H:%M:%S')] \$*"; }
+log "AgentWorker [\$WORKER_ID] started."
 
 while true; do
-    cd "\$REPO"
-    git fetch origin main --quiet 2>/dev/null || true
-    CURRENT_HASH=\$(git rev-parse origin/main 2>/dev/null || echo "")
+    cd "\$REPO" 2>/dev/null || { log "Repo 없음"; sleep 60; continue; }
 
-    if [ -n "\$CURRENT_HASH" ] && [ "\$CURRENT_HASH" != "\$LAST_HASH" ]; then
-        echo "[\$(date)] New task detected. Running Claude..."
-        git pull origin main --quiet 2>/dev/null || true
-        git checkout "\$BRANCH" --quiet 2>/dev/null || git checkout -B "\$BRANCH"
-        git merge main --no-edit --quiet 2>/dev/null || true
+    git fetch origin main "\$BRANCH" --quiet 2>/dev/null || true
 
-        TASK=\$(cat coordination/task.md 2>/dev/null || echo "No task")
+    # task.md 내용 hash만 비교 (README 등 다른 파일 변경은 무시)
+    TASK_HASH=\$(git show origin/main:coordination/task.md 2>/dev/null | shasum | cut -d' ' -f1 || true)
+    LAST_TASK_HASH=\$(cat "\$LAST_TASK_FILE" 2>/dev/null || true)
+
+    if [ -n "\$TASK_HASH" ] && [ "\$TASK_HASH" != "\$LAST_TASK_HASH" ]; then
+        log "task.md 변경 감지. Claude 실행 중..."
+
+        git checkout "\$BRANCH" --quiet 2>/dev/null || git checkout -B "\$BRANCH" "origin/\$BRANCH" --quiet
+        git merge origin/main --no-edit --quiet 2>/dev/null || { git merge --abort; sleep 60; continue; }
+
+        TASK=\$(cat coordination/task.md 2>/dev/null || true)
         OTHER_AGENTS=""
         for f in agents/*.md; do
             [ "\$(basename \$f)" = "\${AGENT_NAME}.md" ] && continue
             OTHER_AGENTS="\$OTHER_AGENTS\n### \$(basename \$f .md)\n\$(cat \$f)\n"
         done
-        DISCUSSION=\$(cat coordination/discussion.md 2>/dev/null || echo "")
+        DISCUSSION=\$(cat coordination/discussion.md 2>/dev/null || true)
 
         "\$CLAUDE" --dangerously-skip-permissions -p "
 너는 \$WORKER_ID 에이전트다. 워크스페이스: \$REPO
@@ -201,11 +210,20 @@ while true; do
 ---
 
 확인 없이 끝까지 자율 수행. 결과는 agents/\${AGENT_NAME}.md, 의견은 coordination/discussion.md에 추가.
-완료 후 git add -A && git commit -m 'agent: \$WORKER_ID 작업 완료' && git push origin \$BRANCH
+git commit/push는 worker 스크립트가 처리하므로 직접 실행하지 마라.
 " 2>&1 | tee -a "$WORKER_BASE/logs/claude.log"
 
-        LAST_HASH="\$CURRENT_HASH"
-        echo "[\$(date)] Done."
+        git add . 2>/dev/null || true
+        if ! git diff --cached --quiet; then
+            git commit -m "agent: \$WORKER_ID 작업 완료"
+            git push origin "\$BRANCH"
+            log "push 완료"
+        else
+            log "변경 없음"
+        fi
+
+        echo "\$TASK_HASH" > "\$LAST_TASK_FILE"
+        log "Done."
     fi
     sleep 60
 done

@@ -34,3 +34,12 @@
 ## 상태
 - Task #001 자기소개 및 역할 제안: **완료** (2026-06-26)
 - 자율 작업 수행 능력 검증: **완료**
+
+## AgentWorker setup report - 2026-06-26 23:10:56 KST
+
+- AgentWorker directory: complete
+- authorized_keys registration: complete
+- LaunchAgent plist: installed
+- worker script: installed at /Users/yoonjunseo/AgentWorker/worker.sh
+- Remote Login status: On
+- Mac mini IP: 192.168.219.112
